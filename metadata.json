@@ -1,0 +1,5 @@
+{
+  "name": "TilePrint AI",
+  "description": "Split large images into multiple printable A4 pages with AI-powered project assistance.",
+  "requestFramePermissions": []
+}
