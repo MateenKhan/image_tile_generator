@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Settings, RefreshCw, Scissors, ArrowRight, Printer, Eye } from 'lucide-react';
+import { Upload, Download, Settings, RefreshCw, Scissors, ArrowRight, Printer, Eye, X } from 'lucide-react';
 import { 
   DEFAULT_PHYSICAL_HEIGHT, 
   DEFAULT_PHYSICAL_WIDTH, 
@@ -25,6 +25,13 @@ const App: React.FC = () => {
 
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [printPreviewTile, setPrintPreviewTile] = useState<SplitResult | null>(null);
+
+  const [showCustomPrintPreview, setShowCustomPrintPreview] = useState(false);
+  const [printSettings, setPrintSettings] = useState({
+    copies: 1,
+    scale: 100,
+    paperHandling: 'auto'
+  });
 
   // Handle File Upload
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,18 +92,31 @@ const App: React.FC = () => {
   const handlePrintPreview = (tile: SplitResult) => {
     setPrintPreviewTile(tile);
     setShowPrintPreview(true);
+    setShowCustomPrintPreview(true);
   };
 
   const closePrintPreview = () => {
     setShowPrintPreview(false);
+    setShowCustomPrintPreview(false);
     setPrintPreviewTile(null);
   };
 
   const handlePrint = () => {
     if (printPreviewTile) {
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(`
+      // Create a hidden iframe for printing
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'absolute';
+      iframe.style.top = '-1000px';
+      iframe.style.left = '-1000px';
+      document.body.appendChild(iframe);
+      
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (iframeDoc) {
+        // Check if this is a borderless print
+        const isBorderless = selectedPaper.name.includes('Borderless');
+        
+        iframeDoc.open();
+        iframeDoc.write(`
           <!DOCTYPE html>
           <html>
             <head>
@@ -112,46 +132,70 @@ const App: React.FC = () => {
                     padding: 0;
                   }
                 }
+                @media screen {
+                  body {
+                    margin: 20px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    background: #f0f0f0;
+                  }
+                }
                 body {
-                  margin: 0;
-                  padding: 0;
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
-                  min-height: 100vh;
-                  background: #f0f0f0;
+                  font-family: Arial, sans-serif;
                 }
-                .print-container {
-                  max-width: 100%;
-                  max-height: 100vh;
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
+                .print-area {
+                  width: ${selectedPaper.width}in;
+                  height: ${selectedPaper.height}in;
+                  box-sizing: border-box;
+                  position: relative;
+                  ${isBorderless ? 'margin: 0; padding: 0;' : 'padding: 0.25in;'}
+                  background: white;
+                  box-shadow: 0 0 10px rgba(0,0,0,0.1);
                 }
-                img {
-                  max-width: 100%;
-                  max-height: 100vh;
-                  object-fit: contain;
+                .print-content {
+                  width: 100%;
+                  height: 100%;
+                  ${isBorderless ? 'width: 100%; height: 100%; object-fit: cover;' : ''}
+                }
+                .non-printable-header {
+                  display: none;
+                }
+                @media print {
+                  .non-printable-header {
+                    display: none;
+                  }
+                  .print-area {
+                    box-shadow: none;
+                    ${isBorderless ? 'padding: 0;' : ''}
+                  }
                 }
               </style>
             </head>
             <body>
-              <div class="print-container">
-                <img src="${printPreviewTile.url}" alt="Print Preview" />
+              <div class="non-printable-header">
+                <h2>Print Preview - ${printPreviewTile.id}</h2>
+                <p>This is a preview. Click print to print the image.</p>
               </div>
-              <script>
-                window.onload = function() {
-                  window.print();
-                  // Close after print or after a delay
-                  setTimeout(function() {
-                    window.close();
-                  }, 1000);
-                }
-              </script>
+              <div class="print-area">
+                <img src="${printPreviewTile.url}" alt="Print Preview" class="print-content" />
+              </div>
             </body>
           </html>
         `);
-        printWindow.document.close();
+        iframeDoc.close();
+        
+        // Wait a bit for the content to load, then trigger print
+        setTimeout(() => {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+          
+          // Clean up the iframe after printing
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+          }, 1000);
+        }, 500);
       }
     }
   };
@@ -401,34 +445,114 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Print Preview Modal */}
-              {showPrintPreview && printPreviewTile && (
+              {/* Custom Print Preview Modal */}
+              {showPrintPreview && showCustomPrintPreview && printPreviewTile && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                  <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[95vh] overflow-hidden flex flex-col">
                     <div className="flex justify-between items-center p-4 border-b border-slate-200">
                       <h3 className="text-lg font-bold text-slate-900">Print Preview</h3>
                       <button 
                         onClick={closePrintPreview}
                         className="text-slate-500 hover:text-slate-700 p-2 rounded-lg hover:bg-slate-100"
                       >
-                        ✕
+                        <X size={20} />
                       </button>
                     </div>
                     
-                    <div className="flex-1 flex items-center justify-center p-4 bg-slate-100">
-                      <div 
-                        className="bg-white shadow-lg flex items-center justify-center"
-                        style={{
-                          width: `${Math.min(600, (selectedPaper.width / selectedPaper.height) * 400)}px`,
-                          height: '400px',
-                          aspectRatio: `${selectedPaper.width}/${selectedPaper.height}`
-                        }}
-                      >
-                        <img 
-                          src={printPreviewTile.url} 
-                          alt="Print Preview" 
-                          className="max-w-full max-h-full object-contain"
-                        />
+                    <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+                      {/* Print Preview Area */}
+                      <div className="flex-1 p-4 bg-slate-100 flex items-center justify-center overflow-auto">
+                        <div 
+                          className="bg-white shadow-lg flex items-center justify-center"
+                          style={{
+                            width: `${Math.min(600, (selectedPaper.width / selectedPaper.height) * 400)}px`,
+                            height: '400px',
+                            aspectRatio: `${selectedPaper.width}/${selectedPaper.height}`
+                          }}
+                        >
+                          <img 
+                            src={printPreviewTile.url} 
+                            alt="Print Preview" 
+                            className="max-w-full max-h-full object-contain"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Print Settings Panel */}
+                      <div className="w-full md:w-80 border-l border-slate-200 bg-white p-4 overflow-y-auto">
+                        <div className="space-y-6">
+                          <div>
+                            <h4 className="font-medium text-slate-900 mb-3">Print Settings</h4>
+                            
+                            <div className="space-y-4">
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Paper Size</label>
+                                <div className="text-sm text-slate-900 bg-slate-50 p-2 rounded">
+                                  {selectedPaper.name} ({selectedPaper.width}" × {selectedPaper.height}")
+                                </div>
+                              </div>
+                              
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Copies</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="100"
+                                  value={printSettings.copies}
+                                  onChange={(e) => setPrintSettings({...printSettings, copies: parseInt(e.target.value) || 1})}
+                                  className="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                />
+                              </div>
+                              
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Scale</label>
+                                <select
+                                  value={printSettings.scale}
+                                  onChange={(e) => setPrintSettings({...printSettings, scale: parseInt(e.target.value)})}
+                                  className="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                >
+                                  <option value={50}>50%</option>
+                                  <option value={75}>75%</option>
+                                  <option value={100}>100%</option>
+                                  <option value={125}>125%</option>
+                                  <option value={150}>150%</option>
+                                  <option value={200}>200%</option>
+                                </select>
+                              </div>
+                              
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Paper Handling</label>
+                                <select
+                                  value={printSettings.paperHandling}
+                                  onChange={(e) => setPrintSettings({...printSettings, paperHandling: e.target.value})}
+                                  className="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                >
+                                  <option value="auto">Auto</option>
+                                  <option value="portrait">Portrait</option>
+                                  <option value="landscape">Landscape</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="pt-4 border-t border-slate-200">
+                            <h4 className="font-medium text-slate-900 mb-3">Preview Info</h4>
+                            <div className="text-sm space-y-2">
+                              <div className="flex justify-between">
+                                <span className="text-slate-500">Tile ID:</span>
+                                <span className="font-mono">{printPreviewTile.id}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-500">Position:</span>
+                                <span>Row {printPreviewTile.rowIndex + 1}, Col {printPreviewTile.colIndex + 1}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-500">Dimensions:</span>
+                                <span>{printPreviewTile.width} × {printPreviewTile.height}px</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     
