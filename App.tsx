@@ -8,10 +8,9 @@ import {
 } from './constants';
 import { PaperSize, SplitResult } from './types';
 import { fileToBase64, splitImage } from './utils/imageUtils';
-import AssistantChat from './components/AssistantChat';
+// import AssistantChat from './components/AssistantChat';
 import GridPreview from './components/GridPreview';
 import JSZip from 'jszip';
-import FileSaver from 'file-saver';
 
 const App: React.FC = () => {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -68,10 +67,16 @@ const App: React.FC = () => {
     });
 
     const content = await zip.generateAsync({ type: "blob" });
-    // file-saver often exports the function as default in ESM builds, 
-    // but types might define it as a named function. We handle the import safely here.
-    const save = (FileSaver as any).saveAs || FileSaver;
-    save(content, "tileprint-project.zip");
+    
+    // Use native anchor download to avoid file-saver module issues
+    const url = URL.createObjectURL(content);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = "tileprint-project.zip";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
   return (
@@ -201,10 +206,7 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* AI Assistant - Visible only when image is present */}
-            {imageSrc && (
-              <AssistantChat imageBase64={imageSrc} />
-            )}
+            
 
           </div>
 
