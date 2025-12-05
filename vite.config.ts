@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         outDir: 'docs'
-      }
+      },
+      base: './'
     };
 });
