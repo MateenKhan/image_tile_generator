@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Settings, RefreshCw, Scissors, ArrowRight, Printer } from 'lucide-react';
+import { Upload, Download, Settings, RefreshCw, Scissors, ArrowRight, Printer, Eye } from 'lucide-react';
 import { 
   DEFAULT_PHYSICAL_HEIGHT, 
   DEFAULT_PHYSICAL_WIDTH, 
@@ -22,6 +22,9 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [tiles, setTiles] = useState<SplitResult[]>([]);
   const [activeTab, setActiveTab] = useState<'configure' | 'download'>('configure');
+
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [printPreviewTile, setPrintPreviewTile] = useState<SplitResult | null>(null);
 
   // Handle File Upload
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,6 +80,80 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
+
+  const handlePrintPreview = (tile: SplitResult) => {
+    setPrintPreviewTile(tile);
+    setShowPrintPreview(true);
+  };
+
+  const closePrintPreview = () => {
+    setShowPrintPreview(false);
+    setPrintPreviewTile(null);
+  };
+
+  const handlePrint = () => {
+    if (printPreviewTile) {
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Print Tile</title>
+              <style>
+                @media print {
+                  @page {
+                    margin: 0;
+                    size: ${selectedPaper.width}in ${selectedPaper.height}in;
+                  }
+                  body {
+                    margin: 0;
+                    padding: 0;
+                  }
+                }
+                body {
+                  margin: 0;
+                  padding: 0;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  min-height: 100vh;
+                  background: #f0f0f0;
+                }
+                .print-container {
+                  max-width: 100%;
+                  max-height: 100vh;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                }
+                img {
+                  max-width: 100%;
+                  max-height: 100vh;
+                  object-fit: contain;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="print-container">
+                <img src="${printPreviewTile.url}" alt="Print Preview" />
+              </div>
+              <script>
+                window.onload = function() {
+                  window.print();
+                  // Close after print or after a delay
+                  setTimeout(function() {
+                    window.close();
+                  }, 1000);
+                }
+              </script>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      }
+    }
   };
 
   return (
@@ -273,19 +350,21 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {imageSrc && activeTab === 'download' && tiles.length > 0 && (
+              {imageSrc && activeTab === 'download' && tiles.length > 0 && !showPrintPreview && (
                 <div className="w-full">
                   <div className="flex justify-between items-center mb-6">
                     <div>
                       <h3 className="text-lg font-bold text-slate-900">Ready to Print</h3>
                       <p className="text-slate-500 text-sm">Total {tiles.length} pages generated</p>
                     </div>
-                    <button 
-                      onClick={handleDownloadAll}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
-                    >
-                      <Download size={16} /> Download All (.zip)
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handleDownloadAll}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                      >
+                        <Download size={16} /> Download All (.zip)
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
@@ -298,14 +377,23 @@ const App: React.FC = () => {
                           <span className="text-xs font-mono text-slate-500">
                              Row {tile.rowIndex + 1}, Col {tile.colIndex + 1}
                           </span>
-                          <a 
-                            href={tile.url} 
-                            download={`${tile.id}.jpg`}
-                            className="text-indigo-600 hover:text-indigo-800 p-1 rounded hover:bg-indigo-50"
-                            title="Download Page"
-                          >
-                            <Download size={16} />
-                          </a>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handlePrintPreview(tile)}
+                              className="text-indigo-600 hover:text-indigo-800 p-1 rounded hover:bg-indigo-50"
+                              title="Print Preview"
+                            >
+                              <Eye size={16} />
+                            </button>
+                            <a 
+                              href={tile.url} 
+                              download={`${tile.id}.jpg`}
+                              className="text-indigo-600 hover:text-indigo-800 p-1 rounded hover:bg-indigo-50"
+                              title="Download Page"
+                            >
+                              <Download size={16} />
+                            </a>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -313,6 +401,54 @@ const App: React.FC = () => {
                 </div>
               )}
 
+              {/* Print Preview Modal */}
+              {showPrintPreview && printPreviewTile && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                    <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                      <h3 className="text-lg font-bold text-slate-900">Print Preview</h3>
+                      <button 
+                        onClick={closePrintPreview}
+                        className="text-slate-500 hover:text-slate-700 p-2 rounded-lg hover:bg-slate-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="flex-1 flex items-center justify-center p-4 bg-slate-100">
+                      <div 
+                        className="bg-white shadow-lg flex items-center justify-center"
+                        style={{
+                          width: `${Math.min(600, (selectedPaper.width / selectedPaper.height) * 400)}px`,
+                          height: '400px',
+                          aspectRatio: `${selectedPaper.width}/${selectedPaper.height}`
+                        }}
+                      >
+                        <img 
+                          src={printPreviewTile.url} 
+                          alt="Print Preview" 
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
+                      <button
+                        onClick={closePrintPreview}
+                        className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg font-medium"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handlePrint}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium flex items-center gap-2"
+                      >
+                        <Printer size={16} /> Print
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

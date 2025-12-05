@@ -54,6 +54,9 @@ export const splitImage = async (
   const pixelsOverlapX = overlapInches * widthPPI;
   const pixelsOverlapY = overlapInches * heightPPI;
 
+  // Check if this is a borderless print
+  const isBorderless = paperSize.name.includes('Borderless');
+  
   // Calculate grid
   // Effective print area per page (subtracting overlap logic if we were strictly printing, 
   // but usually tile printing means we print the full page and the user cuts.
@@ -94,14 +97,17 @@ export const splitImage = async (
 
       // Add cut markers or guides? optional. 
       // Let's add simple corner ticks to help alignment.
-      ctx.strokeStyle = '#CCCCCC';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      // Top left
-      ctx.moveTo(0, 20); ctx.lineTo(0,0); ctx.lineTo(20,0);
-      // Bottom right
-      ctx.moveTo(canvas.width, canvas.height - 20); ctx.lineTo(canvas.width, canvas.height); ctx.lineTo(canvas.width - 20, canvas.height);
-      ctx.stroke();
+      // Skip guides for borderless prints
+      if (!isBorderless) {
+        ctx.strokeStyle = '#CCCCCC';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Top left
+        ctx.moveTo(0, 20); ctx.lineTo(0,0); ctx.lineTo(20,0);
+        // Bottom right
+        ctx.moveTo(canvas.width, canvas.height - 20); ctx.lineTo(canvas.width, canvas.height); ctx.lineTo(canvas.width - 20, canvas.height);
+        ctx.stroke();
+      }
 
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
       
