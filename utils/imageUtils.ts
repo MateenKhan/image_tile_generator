@@ -1,4 +1,5 @@
 import { SplitResult, PaperSize } from '../types';
+import { MAX_OUTPUT_PPI, isBorderless, tileLayout } from './tileLayout';
 
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -29,88 +30,56 @@ export const loadImage = (src: string): Promise<HTMLImageElement> => {
 
 export const splitImage = async (
   imageSrc: string,
-  targetWidthInches: number,
-  targetHeightInches: number,
+  printWidthInches: number,
+  printHeightInches: number,
   paperSize: PaperSize,
   overlapInches: number = 0.25
 ): Promise<SplitResult[]> => {
   const img = await loadImage(imageSrc);
-  
-  // 1. Calculate PPI (Pixels Per Inch) needed to match the target physical size
-  //    PPI = Image Pixels / Target Physical Inches
-  //    We use the larger dimension to ensure quality or just average.
-  //    Actually, we just map the physical grid to the pixel grid.
-  
-  const widthPPI = img.naturalWidth / targetWidthInches;
-  const heightPPI = img.naturalHeight / targetHeightInches;
-  
-  // Use the higher PPI to maintain quality, or treat X/Y independently if aspect ratio changes (stretching)
-  // Assuming we want to Preserve Aspect Ratio of the *original image* usually, 
-  // but here the user explicitly defines physical dimensions which might warp it.
-  // We will assume "Fill" logic or simple stretching. Let's do simple stretching to match dimensions provided.
-  
-  const pixelsPerPaperWidth = paperSize.width * widthPPI;
-  const pixelsPerPaperHeight = paperSize.height * heightPPI;
-  const pixelsOverlapX = overlapInches * widthPPI;
-  const pixelsOverlapY = overlapInches * heightPPI;
-
-  // Check if this is a borderless print
-  const isBorderless = paperSize.name.includes('Borderless');
-  
-  // Calculate grid
-  // Effective print area per page (subtracting overlap logic if we were strictly printing, 
-  // but usually tile printing means we print the full page and the user cuts.
-  // Let's assume standard tiling: We step by (PaperSize - Overlap).
-  
-  const stepX = (paperSize.width - overlapInches) * widthPPI;
-  const stepY = (paperSize.height - overlapInches) * heightPPI;
-  
-  const cols = Math.ceil(img.naturalWidth / stepX);
-  const rows = Math.ceil(img.naturalHeight / stepY);
-
+  const sourceWidth = img.naturalWidth;
+  const sourceHeight = img.naturalHeight;
+  const ppiX = sourceWidth / printWidthInches;
+  const ppiY = sourceHeight / printHeightInches;
+  const outputPPI = Math.min(MAX_OUTPUT_PPI, Math.max(ppiX, ppiY));
+  const layout = tileLayout(printWidthInches, printHeightInches, paperSize, overlapInches);
+  const borderless = isBorderless(paperSize);
+  const canvasWidth = Math.round(layout.pageWidth * outputPPI);
+  const canvasHeight = Math.round(layout.pageHeight * outputPPI);
   const results: SplitResult[] = [];
 
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
+  for (let y = 0; y < layout.rows; y++) {
+    for (let x = 0; x < layout.cols; x++) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) continue;
-
-      // Canvas size is the Paper Size in pixels
-      canvas.width = pixelsPerPaperWidth;
-      canvas.height = pixelsPerPaperHeight;
-      
-      // Fill white background (for transparency handling)
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Source coordinates
-      const srcX = x * stepX;
-      const srcY = y * stepY;
-      
-      // Draw slice
-      ctx.drawImage(
-        img,
-        srcX, srcY, pixelsPerPaperWidth, pixelsPerPaperHeight, // Source rect
-        0, 0, canvas.width, canvas.height // Dest rect
-      );
+      const srcX = x * layout.stepX * ppiX;
+      const srcY = y * layout.stepY * ppiY;
+      const srcW = Math.min(layout.pageWidth * ppiX, sourceWidth - srcX);
+      const srcH = Math.min(layout.pageHeight * ppiY, sourceHeight - srcY);
+      if (srcW > 0 && srcH > 0) {
+        ctx.drawImage(
+          img,
+          srcX, srcY, srcW, srcH,
+          0, 0, (srcW / ppiX) * outputPPI, (srcH / ppiY) * outputPPI
+        );
+      }
 
-      // Add cut markers or guides? optional. 
-      // Let's add simple corner ticks to help alignment.
-      // Skip guides for borderless prints
-      if (!isBorderless) {
+      if (!borderless) {
         ctx.strokeStyle = '#CCCCCC';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        // Top left
         ctx.moveTo(0, 20); ctx.lineTo(0,0); ctx.lineTo(20,0);
-        // Bottom right
         ctx.moveTo(canvas.width, canvas.height - 20); ctx.lineTo(canvas.width, canvas.height); ctx.lineTo(canvas.width - 20, canvas.height);
         ctx.stroke();
       }
 
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
-      
+
       if (blob) {
         results.push({
           id: `tile_${x}_${y}`,

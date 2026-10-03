@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Settings, RefreshCw, Scissors, ArrowRight, Printer, Eye, X } from 'lucide-react';
+import { Upload, Download, Settings, RefreshCw, Scissors, ArrowRight, Printer, Eye, X, Lock, Unlock } from 'lucide-react';
 import { 
   DEFAULT_PHYSICAL_HEIGHT, 
   DEFAULT_PHYSICAL_WIDTH, 
@@ -7,7 +7,8 @@ import {
   PAPER_SIZES 
 } from './constants';
 import { PaperSize, SplitResult } from './types';
-import { fileToBase64, splitImage } from './utils/imageUtils';
+import { fileToBase64, loadImage, splitImage } from './utils/imageUtils';
+import { MAX_OUTPUT_PPI, formatInches, formatRatio, roundSize, tileLayout } from './utils/tileLayout';
 // import AssistantChat from './components/AssistantChat';
 import GridPreview from './components/GridPreview';
 import JSZip from 'jszip';
@@ -18,6 +19,8 @@ const App: React.FC = () => {
   const [targetHeight, setTargetHeight] = useState<number>(DEFAULT_PHYSICAL_HEIGHT);
   const [selectedPaper, setSelectedPaper] = useState<PaperSize>(DEFAULT_PAPER);
   const [overlap, setOverlap] = useState<number>(0.25);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [keepProportions, setKeepProportions] = useState(true);
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [tiles, setTiles] = useState<SplitResult[]>([]);
@@ -38,6 +41,12 @@ const App: React.FC = () => {
     if (e.target.files && e.target.files[0]) {
       try {
         const base64 = await fileToBase64(e.target.files[0]);
+        const img = await loadImage(base64);
+        const size = { width: img.naturalWidth, height: img.naturalHeight };
+        setImageSize(size);
+        if (keepProportions && targetWidth > 0) {
+          setTargetHeight(roundSize((targetWidth * size.height) / size.width));
+        }
         setImageSrc(base64);
         setTiles([]); // Reset tiles on new image
         setActiveTab('configure');
@@ -48,9 +57,39 @@ const App: React.FC = () => {
     }
   };
 
+  const changeWidth = (value: number) => {
+    setTargetWidth(value);
+    if (keepProportions && imageSize && value > 0) {
+      setTargetHeight(roundSize((value * imageSize.height) / imageSize.width));
+    }
+  };
+
+  const changeHeight = (value: number) => {
+    setTargetHeight(value);
+    if (keepProportions && imageSize && value > 0) {
+      setTargetWidth(roundSize((value * imageSize.width) / imageSize.height));
+    }
+  };
+
+  const toggleProportions = () => {
+    const next = !keepProportions;
+    setKeepProportions(next);
+    if (next && imageSize && targetWidth > 0) {
+      setTargetHeight(roundSize((targetWidth * imageSize.height) / imageSize.width));
+    }
+  };
+
+  const sizesValid = targetWidth > 0 && targetHeight > 0;
+  const stretched = !!imageSize && sizesValid &&
+    Math.abs((targetWidth / targetHeight) / (imageSize.width / imageSize.height) - 1) > 0.005;
+  const printPPI = imageSize && sizesValid
+    ? Math.min(imageSize.width / targetWidth, imageSize.height / targetHeight)
+    : 0;
+  const layout = tileLayout(targetWidth, targetHeight, selectedPaper, overlap);
+
   // Process Image Splitting
   const handleSplit = async () => {
-    if (!imageSrc) return;
+    if (!imageSrc || !sizesValid) return;
     
     setIsProcessing(true);
     try {
@@ -247,6 +286,14 @@ const App: React.FC = () => {
                   )}
                 </div>
               </div>
+              {imageSize && (
+                <div data-testid="source-size" className="mt-3 flex justify-between gap-2 text-sm text-slate-600">
+                  <span>Image size</span>
+                  <span className="font-medium text-slate-900">
+                    {imageSize.width} × {imageSize.height} px · {formatRatio(imageSize.width, imageSize.height)}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Configuration Section */}
@@ -257,30 +304,66 @@ const App: React.FC = () => {
               </h2>
               
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Target Width (in)</label>
-                    <input 
-                      type="number" 
+                    <label htmlFor="print-width" className="block text-sm font-medium text-slate-700 mb-1">Print width (in)</label>
+                    <input
+                      id="print-width"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      data-testid="print-width"
                       value={targetWidth}
-                      onChange={(e) => setTargetWidth(Number(e.target.value))}
+                      onChange={(e) => changeWidth(Number(e.target.value))}
                       className="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     />
                   </div>
+                  <button
+                    type="button"
+                    onClick={toggleProportions}
+                    data-testid="keep-proportions"
+                    aria-pressed={keepProportions}
+                    aria-label="Keep proportions"
+                    title={keepProportions ? 'Proportions kept: click to unlock' : 'Proportions unlocked: click to keep them'}
+                    className={`mb-1 p-2 rounded-md border transition-colors ${keepProportions ? 'border-indigo-300 bg-indigo-50 text-indigo-600' : 'border-slate-300 text-slate-400 hover:text-slate-600'}`}
+                  >
+                    {keepProportions ? <Lock size={16} /> : <Unlock size={16} />}
+                  </button>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Target Height (in)</label>
-                    <input 
-                      type="number" 
+                    <label htmlFor="print-height" className="block text-sm font-medium text-slate-700 mb-1">Print height (in)</label>
+                    <input
+                      id="print-height"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      data-testid="print-height"
                       value={targetHeight}
-                      onChange={(e) => setTargetHeight(Number(e.target.value))}
+                      onChange={(e) => changeHeight(Number(e.target.value))}
                       className="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     />
                   </div>
                 </div>
 
+                <p className="text-xs text-slate-500 -mt-2">
+                  The finished size once the pages are trimmed and joined.
+                </p>
+
+                {stretched && imageSize && (
+                  <div data-testid="stretch-note" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                    Proportions unlocked: the image ({formatRatio(imageSize.width, imageSize.height)}) will be stretched to {formatInches(targetWidth)} × {formatInches(targetHeight)}.
+                  </div>
+                )}
+
+                {printPPI > 0 && (
+                  <div data-testid="print-resolution" className={`text-xs ${printPPI < 150 ? 'text-amber-700' : 'text-slate-500'}`}>
+                    Prints at {Math.round(Math.min(printPPI, MAX_OUTPUT_PPI))} pixels per inch{printPPI < 150 ? ', may look soft up close' : ''}.
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Paper Size</label>
                   <select 
+                    data-testid="paper-size"
                     value={selectedPaper.name}
                     onChange={(e) => {
                       const paper = PAPER_SIZES.find(p => p.name === e.target.value);
@@ -311,7 +394,8 @@ const App: React.FC = () => {
 
                 <button 
                   onClick={handleSplit}
-                  disabled={isProcessing}
+                  data-testid="generate-tiles"
+                  disabled={isProcessing || !sizesValid}
                   className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                 >
                   {isProcessing ? (
@@ -388,7 +472,7 @@ const App: React.FC = () => {
                       </div>
                       <div>
                         <p className="font-semibold text-indigo-900 mb-1">About the preview</p>
-                        <p>Red dashed lines indicate where the image will be split. The aspect ratio of the image is stretched to fit exactly {targetWidth}" × {targetHeight}". Adjust the dimensions if the preview looks distorted.</p>
+                        <p>Red dashed lines mark where each new page starts. Each page prints a {formatInches(layout.pageWidth)} × {formatInches(layout.pageHeight)} area{layout.margin > 0 ? ` inside a ${formatInches(layout.margin)} margin` : ''}, overlapping the next by {formatInches(overlap)}. {stretched ? `The image is stretched to ${formatInches(targetWidth)} × ${formatInches(targetHeight)}.` : 'The image keeps its proportions.'}</p>
                       </div>
                    </div>
                 </div>
@@ -424,6 +508,7 @@ const App: React.FC = () => {
                           <div className="flex gap-1">
                             <button
                               onClick={() => handlePrintPreview(tile)}
+                              data-testid={`tile-preview-${tile.id}`}
                               className="text-indigo-600 hover:text-indigo-800 p-1 rounded hover:bg-indigo-50"
                               title="Print Preview"
                             >
@@ -559,12 +644,14 @@ const App: React.FC = () => {
                     <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
                       <button
                         onClick={closePrintPreview}
+                        data-testid="close-print-preview"
                         className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg font-medium"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={handlePrint}
+                        data-testid="print-tile"
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium flex items-center gap-2"
                       >
                         <Printer size={16} /> Print
