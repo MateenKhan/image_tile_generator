@@ -1,72 +1,25 @@
 # Deploying
 
-The site is a **static** Vite build: plain HTML, CSS and JS. Nothing runs
-server-side.
+Every push to `main` builds the site and copies `docs/` over SSH to the VPS
+([workflow](../.github/workflows/deploy.yml)). Redeploy by hand: **Actions →
+Deploy site → Run workflow**.
 
-**How it deploys:** every push to `main` runs
-[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml). GitHub's
-runner builds the site into `docs/` and copies it over SSH to
-`/var/www/sites/image-tile.jugaaadi.com` on the VPS. The server's nginx serves
-any `/var/www/sites/<domain>` folder by its host name, and Coolify's Traefik
-routes the domain to that nginx. Redeploy by hand from **Actions → Deploy site
-→ Run workflow**.
+## One-time setup
 
-This repo is public: no server address, user or key is written here. They
-live only in the repository's secrets.
+1. Cloudflare DNS: `A` record `image-tile` → `<vps-ip>`, proxied.
+2. On the VPS, as root:
+   ```bash
+   bash <path-to>/add-site.sh image-tile.jugaaadi.com
+   cat <path-to-deploy-private-key>
+   ```
+3. GitHub → **Settings → Secrets and variables → Actions**:
 
----
+   | Secret | Value |
+   | --- | --- |
+   | `SSH_HOST` | `<vps-ip>` |
+   | `SSH_USER` | `<deploy-user>` |
+   | `SSH_PRIVATE_KEY` | the key printed in step 2, `BEGIN`/`END` lines included |
 
-## One-time setup for this site
+4. Run the workflow, then `curl -I https://image-tile.jugaaadi.com/`.
 
-The VPS already has the `deploy` user, the shared nginx and Coolify's Traefik
-(set up for the other `*.jugaaadi.com` static sites). A new site needs three
-things.
-
-### 1. DNS
-
-Cloudflare → DNS → an `A` record named `image-tile`, pointing at the VPS,
-proxied.
-
-### 2. Register the domain on the VPS
-
-Copy [`add-site.sh`](add-site.sh) to the server and run it as root:
-
-```bash
-bash add-site.sh image-tile.jugaaadi.com
-```
-
-It creates the web root and the Traefik router file. Nothing restarts. The
-domain answers with a placeholder page until the first deploy.
-
-### 3. Repository secrets
-
-GitHub → this repo → **Settings → Secrets and variables → Actions → New
-repository secret**:
-
-| Secret | Value |
-| --- | --- |
-| `SSH_HOST` | the VPS address |
-| `SSH_USER` | `deploy` |
-| `SSH_PRIVATE_KEY` | the private half of the deploy key whose public half is in the `deploy` user's `authorized_keys` |
-| `SSH_PORT` | only if not `22` |
-
-GitHub masks secrets in logs. The `deploy` user can write only to the web
-roots.
-
----
-
-## Checking a deploy
-
-```bash
-curl -I https://image-tile.jugaaadi.com/
-```
-
-- **Placeholder page:** the workflow has not run yet, or failed. Check the
-  Actions tab.
-- **Cloudflare 526:** no certificate yet. Wait 2–3 minutes after `add-site.sh`.
-- **Cloudflare 502:** the Traefik router file is missing; re-run `add-site.sh`.
-
-## Do not put API keys in this build
-
-Anything Vite inlines at build time ends up in the public JavaScript. Never
-add a `define` that reads a secret, and never commit a `.env` with one.
+Never inline an API key into this build: everything Vite bundles is public.
