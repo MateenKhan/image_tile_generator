@@ -1,0 +1,80 @@
+name: Deploy site
+
+# Builds on GitHub's runners and ships only the static output to the VPS.
+# No container and no build tooling on the server: nginx serves a folder
+# named after the domain.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site
+        run: npm run build
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+
+          # Secrets pasted through a browser often carry a trailing newline or
+          # space; ssh then fails with a misleading "invalid characters" error.
+          HOST="$(printf '%s' "$SSH_HOST" | tr -d '[:space:]')"
+          USER_="$(printf '%s' "$SSH_USER" | tr -d '[:space:]')"
+          PORT="$(printf '%s' "$SSH_PORT" | tr -d '[:space:]')"
+          {
+            echo "SSH_HOST_CLEAN=$HOST"
+            echo "SSH_USER_CLEAN=$USER_"
+            echo "SSH_PORT_CLEAN=$PORT"
+          } >> "$GITHUB_ENV"
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # Pin the host key so a hijacked DNS record cannot collect the deploy key.
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error::Could not reach the server — check the SSH_HOST and SSH_PORT secrets and the firewall."
+            exit 1
+          fi
+
+      - name: Deploy to VPS
+        env:
+          SITE_DOMAIN: image-tile.jugaaadi.com
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key -p $SSH_PORT_CLEAN"
+          TARGET="$SSH_USER_CLEAN@$SSH_HOST_CLEAN"
+          WEB_ROOT="/var/www/sites/$SITE_DOMAIN"
+
+          $SSH "$TARGET" "mkdir -p '$WEB_ROOT'"
+
+          # The trailing slash on the source copies the folder's contents,
+          # not the folder itself.
+          rsync -az --delete -e "$SSH" docs/ "$TARGET:$WEB_ROOT/"
+
+      - name: Summary
+        run: echo "Deployed to https://image-tile.jugaaadi.com" >> "$GITHUB_STEP_SUMMARY"
