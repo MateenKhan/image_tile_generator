@@ -9,8 +9,8 @@ Deploy site → Run workflow**.
 1. Cloudflare DNS: `A` record `image-tile` → `<vps-ip>`, proxied.
 2. On the VPS, as root:
    ```bash
-   bash <path-to>/add-site.sh image-tile.jugaaadi.com
-   cat <path-to-deploy-private-key>
+   bash /root/add-site.sh image-tile.jugaaadi.com
+   cat /root/vps_deploy
    ```
 3. GitHub → **Settings → Secrets and variables → Actions**:
 
